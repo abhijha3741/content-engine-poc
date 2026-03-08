@@ -32,24 +32,156 @@ export async function aiComplete(opts: {
   return content;
 }
 
-export function parseJsonResponse<T>(raw: string): T {
-  // Try to extract JSON from the response
-  const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const toParse = jsonMatch ? jsonMatch[1].trim() : raw.trim();
+/**
+ * AI complete with automatic JSON retry — retries up to 2 times if JSON parsing fails.
+ */
+export async function aiCompleteJson<T>(opts: {
+  systemPrompt: string;
+  userPrompt: string;
+  temperature?: number;
+  maxTokens?: number;
+}): Promise<T> {
+  const maxRetries = 2;
 
-  // Try parsing directly
-  try {
-    return JSON.parse(toParse);
-  } catch {
-    // Try to find JSON object or array in the text
-    const objectMatch = toParse.match(/\{[\s\S]*\}/);
-    if (objectMatch) {
-      return JSON.parse(objectMatch[0]);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const prompt =
+      attempt === 0
+        ? opts.userPrompt
+        : `${opts.userPrompt}\n\nIMPORTANT: Your previous response was not valid JSON. You MUST respond with ONLY a valid JSON object. Start with { and end with }. No text before or after.`;
+
+    const raw = await aiComplete({
+      ...opts,
+      userPrompt: prompt,
+      temperature: attempt === 0 ? opts.temperature : 0.3, // Lower temp on retry
+    });
+
+    try {
+      return parseJsonResponse<T>(raw);
+    } catch (err) {
+      if (attempt === maxRetries) {
+        const preview = raw.slice(0, 300).replace(/\n/g, ' ');
+        throw new Error(
+          `Failed to parse AI JSON after ${maxRetries + 1} attempts. Response preview: "${preview}"`
+        );
+      }
+      // Continue to retry
     }
-    const arrayMatch = toParse.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      return JSON.parse(arrayMatch[0]);
-    }
-    throw new Error('Failed to parse AI response as JSON');
   }
+
+  throw new Error('Unexpected: exhausted retries');
+}
+
+/**
+ * Clean common JSON issues from AI responses
+ */
+function cleanJsonString(str: string): string {
+  return str
+    // Remove trailing commas before } or ]
+    .replace(/,\s*([\]}])/g, '$1')
+    // Remove control characters except newlines and tabs
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+/**
+ * Find the outermost matching brace pair in a string
+ */
+function extractOutermostJson(str: string): string | null {
+  const startIdx = str.indexOf('{');
+  if (startIdx === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIdx; i < str.length; i++) {
+    const ch = str[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return str.slice(startIdx, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+export function parseJsonResponse<T>(raw: string): T {
+  // Step 1: Strip markdown code fences
+  let cleaned = raw.trim();
+  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    cleaned = fenceMatch[1].trim();
+  }
+
+  // Step 2: Try direct parse
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // continue
+  }
+
+  // Step 3: Try cleaning common issues then parsing
+  try {
+    return JSON.parse(cleanJsonString(cleaned));
+  } catch {
+    // continue
+  }
+
+  // Step 4: Extract outermost JSON object using brace matching
+  const extracted = extractOutermostJson(cleaned);
+  if (extracted) {
+    try {
+      return JSON.parse(extracted);
+    } catch {
+      // Try with cleaning
+      try {
+        return JSON.parse(cleanJsonString(extracted));
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  // Step 5: Try raw input (before fence stripping) in case fence stripping broke it
+  const rawExtracted = extractOutermostJson(raw);
+  if (rawExtracted && rawExtracted !== extracted) {
+    try {
+      return JSON.parse(cleanJsonString(rawExtracted));
+    } catch {
+      // continue
+    }
+  }
+
+  // Step 6: Last resort — try to find array
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      return JSON.parse(cleanJsonString(arrayMatch[0]));
+    } catch {
+      // continue
+    }
+  }
+
+  const preview = raw.slice(0, 200).replace(/\n/g, ' ');
+  throw new Error(`Failed to parse AI response as JSON. Preview: "${preview}"`);
 }

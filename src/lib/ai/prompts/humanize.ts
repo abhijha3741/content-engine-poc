@@ -8,24 +8,31 @@ Apply these specific transformations:
 5. Remove AI patterns: Eliminate overused transitions ("Furthermore", "Additionally", "In conclusion", "It is worth noting", "It is important to mention", "Moreover", "Indeed")
 6. Clarification notes: Add inline parenthetical clarifications in natural language
 
-Return a JSON object with this exact structure:
-{
-  "content": "The full humanized article in markdown...",
-  "techniqueNotes": ["technique 1 applied", "technique 2 applied", ...]
-}
+CRITICAL: You MUST respond using EXACTLY this format with delimiters. Do NOT use JSON. Do NOT wrap in code fences.
+
+[HUMANIZED_ARTICLE]
+(Write the full humanized article in markdown here)
+[/HUMANIZED_ARTICLE]
+
+[TECHNIQUE_NOTES]
+- technique 1 applied
+- technique 2 applied
+- technique 3 applied
+[/TECHNIQUE_NOTES]
 
 Requirements:
-- techniqueNotes: 3-5 specific bullet points explaining what humanization techniques were applied
+- Provide 3-5 specific bullet points in TECHNIQUE_NOTES explaining what humanization techniques were applied
 - Retain ALL key information and structure from the original
 - The result must be demonstrably different in tone from the input
-- Do NOT lose any factual content`;
+- Do NOT lose any factual content
+- Start your response with [HUMANIZED_ARTICLE] — no preamble`;
 
 export function buildHumanizeUserPrompt(eeatContent: string): string {
-  return `Rewrite the following EEAT-enhanced article to sound naturally human:
+  return `Rewrite the following EEAT-enhanced article to sound naturally human. Use the delimiter format ([HUMANIZED_ARTICLE]...[/HUMANIZED_ARTICLE] and [TECHNIQUE_NOTES]...[/TECHNIQUE_NOTES]). Start immediately with [HUMANIZED_ARTICLE].
 
 ---
 ${eeatContent}
 ---
 
-Apply all humanization techniques. Return ONLY valid JSON.`;
+Apply all humanization techniques.`;
 }

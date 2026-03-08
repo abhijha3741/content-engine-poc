@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ThumbnailPreview } from '@/components/stages/ThumbnailPreview';
+import { ReviewMode } from '@/components/stages/ReviewMode';
 
 interface ExportOutputProps {
   data: {
@@ -18,10 +20,18 @@ interface ExportOutputProps {
     };
     fullHtmlDocument: string;
   };
+  thumbnailDataUrl?: string;
+  eeatAudit?: {
+    experience: { rating: string; suggestions: string[] };
+    expertise: { rating: string; suggestions: string[] };
+    authoritativeness: { rating: string; suggestions: string[] };
+    trustworthiness: { rating: string; suggestions: string[] };
+  };
+  techniqueNotes?: string[];
 }
 
-export function ExportOutput({ data }: ExportOutputProps) {
-  const [showPreview, setShowPreview] = useState(false);
+export function ExportOutput({ data, thumbnailDataUrl, eeatAudit, techniqueNotes }: ExportOutputProps) {
+  const [showReview, setShowReview] = useState(false);
 
   const handleDownload = () => {
     const blob = new Blob([data.fullHtmlDocument], { type: 'text/html' });
@@ -51,6 +61,11 @@ export function ExportOutput({ data }: ExportOutputProps) {
     <>
       <Card title="Export / Publish Ready" stageNumber={6} status="completed">
         <div className="space-y-4 text-sm">
+          {/* Thumbnail preview */}
+          {thumbnailDataUrl && (
+            <ThumbnailPreview thumbnailDataUrl={thumbnailDataUrl} title={data.title} />
+          )}
+
           <div>
             <span className="font-semibold text-gray-700">Title:</span>
             <p className="text-gray-800 font-medium">{data.title}</p>
@@ -84,8 +99,8 @@ export function ExportOutput({ data }: ExportOutputProps) {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button onClick={() => setShowPreview(true)} variant="primary">
-              Preview Article
+            <Button onClick={() => setShowReview(true)} variant="primary">
+              Review Article
             </Button>
             <Button onClick={handleDownload} variant="outline" aria-label="Download HTML file">
               Download HTML
@@ -97,29 +112,21 @@ export function ExportOutput({ data }: ExportOutputProps) {
         </div>
       </Card>
 
-      {/* Preview Modal */}
-      {showPreview && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center overflow-y-auto p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-3xl w-full my-8">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <h3 className="font-semibold text-gray-900">Article Preview</h3>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="text-gray-400 hover:text-gray-600 text-xl focus:outline-none"
-                aria-label="Close preview"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="px-6 py-4 border-b text-sm text-gray-500">
-              {data.wordCount.toLocaleString()} words &middot; {data.estimatedReadTime} min read
-            </div>
-            <article className="px-6 py-6 prose prose-sm max-w-none">
-              <h1>{data.title}</h1>
-              <div dangerouslySetInnerHTML={{ __html: data.bodyHtml }} />
-            </article>
-          </div>
-        </div>
+      {/* Full Review Mode */}
+      {showReview && (
+        <ReviewMode
+          title={data.title}
+          metaDescription={data.metaDescription}
+          estimatedReadTime={data.estimatedReadTime}
+          wordCount={data.wordCount}
+          bodyHtml={data.bodyHtml}
+          thumbnailDataUrl={thumbnailDataUrl}
+          keywords={data.keywords}
+          eeatAudit={eeatAudit}
+          techniqueNotes={techniqueNotes}
+          fullHtmlDocument={data.fullHtmlDocument}
+          onClose={() => setShowReview(false)}
+        />
       )}
     </>
   );

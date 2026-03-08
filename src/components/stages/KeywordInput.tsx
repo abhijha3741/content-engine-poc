@@ -27,7 +27,7 @@ export function KeywordInput({ onSubmit, loading = false, disabled = false }: Ke
       <p className="text-sm text-gray-500 mb-4">
         e.g. &quot;remote work tools&quot;, &quot;AI for HR&quot;, &quot;content marketing for SaaS&quot;
       </p>
-      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
+      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 items-baseline">
         <div className="flex-1">
           <input
             type="text"

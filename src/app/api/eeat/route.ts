@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession, updateSession } from '@/lib/session/store';
-import { aiComplete, parseJsonResponse } from '@/lib/ai/client';
+import { aiComplete, aiCompleteJson } from '@/lib/ai/client';
 import {
   EEAT_AUDIT_SYSTEM_PROMPT,
   buildEeatAuditUserPrompt,
@@ -9,6 +9,33 @@ import {
 } from '@/lib/ai/prompts/eeat';
 import { renderMarkdown } from '@/lib/utils/markdown';
 import type { EEATDimension } from '@/types/pipeline';
+
+function parseDelimitedResponse(raw: string): { revisedContent: string; changesSummary: string } {
+  // Extract content between [REVISED_ARTICLE] and [/REVISED_ARTICLE]
+  const articleMatch = raw.match(/\[REVISED_ARTICLE\]\s*([\s\S]*?)\s*\[\/REVISED_ARTICLE\]/);
+  const summaryMatch = raw.match(/\[CHANGES_SUMMARY\]\s*([\s\S]*?)\s*\[\/CHANGES_SUMMARY\]/);
+
+  let revisedContent = articleMatch?.[1]?.trim() || '';
+  let changesSummary = summaryMatch?.[1]?.trim() || '';
+
+  // Fallback: if no delimiters found, maybe the whole thing is the article
+  if (!revisedContent) {
+    // Try stripping any preamble before content starts
+    const stripped = raw.replace(/^[\s\S]*?(?=# )/m, '').trim();
+    if (stripped.length > 100) {
+      revisedContent = stripped;
+      changesSummary = changesSummary || 'Article was revised to improve E-E-A-T quality dimensions.';
+    } else {
+      throw new Error('Could not extract revised article from AI response. The model may have returned an unexpected format.');
+    }
+  }
+
+  if (!changesSummary) {
+    changesSummary = 'Article was revised to improve E-E-A-T quality dimensions.';
+  }
+
+  return { revisedContent, changesSummary };
+}
 
 export async function POST(request: Request) {
   try {
@@ -37,14 +64,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Step 1: EEAT Audit
-    const auditRaw = await aiComplete({
-      systemPrompt: EEAT_AUDIT_SYSTEM_PROMPT,
-      userPrompt: buildEeatAuditUserPrompt(session.firstDraft.content),
-      maxTokens: 1200,
-    });
-
-    const auditData = parseJsonResponse<{
+    // Step 1: EEAT Audit (with auto-retry on JSON parse failure)
+    const auditData = await aiCompleteJson<{
       audit: {
         experience: { rating: string; suggestions: string[] };
         expertise: { rating: string; suggestions: string[] };
@@ -52,9 +73,13 @@ export async function POST(request: Request) {
         trustworthiness: { rating: string; suggestions: string[] };
       };
       smeInputMock: string[];
-    }>(auditRaw);
+    }>({
+      systemPrompt: EEAT_AUDIT_SYSTEM_PROMPT,
+      userPrompt: buildEeatAuditUserPrompt(session.firstDraft.content),
+      maxTokens: 1200,
+    });
 
-    // Step 2: EEAT Revision
+    // Step 2: EEAT Revision (plain text with delimiters — more reliable for long content)
     const revisionRaw = await aiComplete({
       systemPrompt: EEAT_REVISION_SYSTEM_PROMPT,
       userPrompt: buildEeatRevisionUserPrompt(
@@ -62,15 +87,11 @@ export async function POST(request: Request) {
         auditData.audit,
         auditData.smeInputMock
       ),
-      maxTokens: 4000,
+      maxTokens: 16000,
       temperature: 0.7,
     });
 
-    const revisionData = parseJsonResponse<{
-      revisedContent: string;
-      changesSummary: string;
-    }>(revisionRaw);
-
+    const revisionData = parseDelimitedResponse(revisionRaw);
     const revisedContentHtml = renderMarkdown(revisionData.revisedContent);
 
     const eeatResult = {

@@ -13,6 +13,16 @@ import { ExportOutput } from '@/components/stages/ExportOutput';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorMessage } from '@/components/ui/ErrorMessage';
 
+type BriefData = {
+  primaryKeyword: string;
+  secondaryKeywords: string[];
+  h1: string;
+  outline: { h2: string; h3s?: string[] }[];
+  targetWordCount: { min: number; max: number };
+  searchIntent: 'informational' | 'commercial' | 'transactional';
+  keyPoints: string[];
+};
+
 type StageData = {
   research?: {
     keyword: string;
@@ -21,15 +31,7 @@ type StageData = {
     articleAngles: string[];
     summary: string;
   };
-  brief?: {
-    primaryKeyword: string;
-    secondaryKeywords: string[];
-    h1: string;
-    outline: { h2: string; h3s?: string[] }[];
-    targetWordCount: { min: number; max: number };
-    searchIntent: 'informational' | 'commercial' | 'transactional';
-    keyPoints: string[];
-  };
+  brief?: BriefData;
   draft?: {
     contentHtml: string;
     wordCount: number;
@@ -69,6 +71,7 @@ export default function Home() {
   const [error, setError] = useState<{ stage: string; message: string } | null>(null);
   const [data, setData] = useState<StageData>({});
   const [inputKeyword, setInputKeyword] = useState('');
+  const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | undefined>(undefined);
 
   const stageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -151,6 +154,10 @@ export default function Home() {
     }
   };
 
+  const handleBriefUpdate = (updatedBrief: BriefData) => {
+    setData((prev) => ({ ...prev, brief: updatedBrief }));
+  };
+
   const handleDraft = async () => {
     const result = await callStage('draft', '/api/draft');
     if (result) {
@@ -184,6 +191,19 @@ export default function Home() {
       setData((prev) => ({ ...prev, export: result }));
       setCurrentStage(7);
       scrollToStage('export');
+
+      // Fetch thumbnail in the background after export succeeds
+      if (sessionId) {
+        try {
+          const thumbRes = await fetch(`/api/thumbnail?sessionId=${sessionId}`);
+          const thumbJson = await thumbRes.json();
+          if (thumbJson.success && thumbJson.data?.thumbnailDataUrl) {
+            setThumbnailDataUrl(thumbJson.data.thumbnailDataUrl);
+          }
+        } catch {
+          // Thumbnail is optional, don't block on failure
+        }
+      }
     }
   };
 
@@ -193,6 +213,7 @@ export default function Home() {
     setError(null);
     setLoading(null);
     setInputKeyword('');
+    setThumbnailDataUrl(undefined);
     fetch('/api/session', { method: 'POST' })
       .then((res) => res.json())
       .then((json) => {
@@ -244,7 +265,13 @@ export default function Home() {
         )}
         {data.brief && (
           <div ref={(el) => { stageRefs.current['brief'] = el; }}>
-            <BriefOutput data={data.brief} onNext={handleDraft} nextLoading={loading === 'draft'} />
+            <BriefOutput
+              data={data.brief}
+              onNext={handleDraft}
+              onBriefUpdate={handleBriefUpdate}
+              sessionId={sessionId || ''}
+              nextLoading={loading === 'draft'}
+            />
           </div>
         )}
 
@@ -296,7 +323,12 @@ export default function Home() {
         )}
         {data.export && (
           <div ref={(el) => { stageRefs.current['export'] = el; }}>
-            <ExportOutput data={data.export} />
+            <ExportOutput
+              data={data.export}
+              thumbnailDataUrl={thumbnailDataUrl}
+              eeatAudit={data.eeat?.audit}
+              techniqueNotes={data.humanized?.techniqueNotes}
+            />
           </div>
         )}
 

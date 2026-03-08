@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     const content = await aiComplete({
       systemPrompt: DRAFT_SYSTEM_PROMPT,
       userPrompt: buildDraftUserPrompt(session.brief),
-      maxTokens: 3000,
+      maxTokens: 8000,
       temperature: 0.7,
     });
 
